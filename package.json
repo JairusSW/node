@@ -12,12 +12,19 @@
     "url": "https://github.com/AssemblyScript/node/issues"
   },
   "devDependencies": {
-    "@as-pect/core": "^3.2.2",
-    "assemblyscript": "0.10.0",
+    "@as-pect/core": "^6.2.1",
     "glob": "^7.1.6"
   },
   "scripts": {
-    "test": "node --experimental-wasi-unstable-preview1 --experimental-wasm-bigint tests/node"
+    "test:wasmtime": "wasmtime node.wasm --dir .",
+    "test:lunatic": "lunatic node.wasm --dir .",
+    "test:node": "node --experimental-wasi-unstable-preview1 test.js",
+    "build": "yarn asc assembly/index.ts --explicitStart -o node.wasm"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@assemblyscript/loader": "^0.19.5",
+    "as-wasi": "^0.4.5",
+    "assemblyscript": "^0.19.2",
+    "colors": "^1.4.0"
+  }
 }

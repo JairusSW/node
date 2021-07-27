@@ -1,13 +1,30 @@
+import "wasi";
+
 import { Buffer } from "../buffer";
 
-/**
- * TODO: Look at https://nodejs.org/dist/latest-v12.x/docs/api/fs.html#fs_fs_readfilesync_path_options
- *
- * Path can be `<string> | <Buffer> | <URL> | <integer>`.
- *
- * This will require a `<T>` parameter to handle all these cases. In this particular case, I think
- * it's okay to default to only `<string>`.
- */
-export function readFileSync(): Buffer {
-  return new Buffer(0);
+import { FileSystem, Descriptor, FileStat } from "as-wasi";
+
+import { console } from "../console";
+
+export namespace fs {
+    export function existSync(path: string): boolean {
+        return changetype<boolean>(FileSystem.exists(path))
+    }
+    export function exists(path: string, callback: (exists: boolean) => void): void {
+        callback(fs.existSync(path))
+    }
+    export function mkdirSync(path: string): void {
+        FileSystem.mkdir(path)
+    }
+    export function mkdir(path: string, callback: () => void): void {
+        fs.mkdirSync(path)
+        callback()
+    }
+    export function writeFileSync(path: string, data: Buffer): void {
+        const descriptor = FileSystem.open(path, 'w+')
+        if (!descriptor) {
+            throw new Error('File not found')
+        }
+        descriptor.writeString(Buffer.toString())
+    }
 }

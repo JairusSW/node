@@ -1,415 +1,338 @@
-import { BLOCK_MAXSIZE, BLOCK, BLOCK_OVERHEAD } from "rt/common";
-import { E_INVALIDLENGTH, E_INDEXOUTOFRANGE } from "util/error";
-import { Uint8Array } from "typedarray";
+import { BLOCK_MAXSIZE } from "rt/common";
+import { E_INVALIDLENGTH } from "util/error";
 
+const hexLookupTable: StaticArray<string> = ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '0a', '0b', '0c', '0d', '0e', '0f', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '1a', '1b', '1c', '1d', '1e', '1f', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '2a', '2b', '2c', '2d', '2e', '2f', '30', '31', '32', '33', '34', '35', '36', '37', '38', '39', '3a', '3b', '3c', '3d', '3e', '3f', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '4a', '4b', '4c', '4d', '4e', '4f', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '5a', '5b', '5c', '5d', '5e', '5f', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '6a', '6b', '6c', '6d', '6e', '6f', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '7a', '7b', '7c', '7d', '7e', '7f', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '8a', '8b', '8c', '8d', '8e', '8f', '90', '91', '92', '93', '94', '95', '96', '97', '98', '99', '9a', '9b', '9c', '9d', '9e', '9f', 'a0', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'aa', 'ab', 'ac', 'ad', 'ae', 'af', 'b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'ba', 'bb', 'bc', 'bd', 'be', 'bf', 'c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'ca', 'cb', 'cc', 'cd', 'ce', 'cf', 'd0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'da', 'db', 'dc', 'dd', 'de', 'df', 'e0', 'e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'ea', 'eb', 'ec', 'ed', 'ee', 'ef', 'f0', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'fa', 'fb', 'fc', 'fd', 'fe', 'ff']
+
+import { encodeBase64, decodeBase64 } from "./Base64";
+
+export class JSONbuffer {
+  public type: string = "Buffer";
+  constructor(public data: Uint8Array) { }
+}
+
+/**
+ * AssemblyScript Buffer
+ */
 export class Buffer extends Uint8Array {
-  [key: number]: u8;
+  /**
+   * Allocates a new buffer containing the given {str}.
+   *
+   * @param str String to store in buffer.
+   * @param encoding encoding to use, optional.  Default is 'utf8'
+   * @deprecated
+   */
+  public constructor(str: string, encoding: string | null = null) {
+    let data: Uint8Array = new Uint8Array(0);
+    if (encoding) {
+      if (encoding === "binary" || encoding === "latin1") {
+        data = decodeLatin(str);
+      } else if (encoding === "hex") {
+        data = decodeHEX(str);
+      } else if (encoding === "utf8" || encoding === "utf-8") {
+        data = Uint8Array.wrap(String.UTF8.encode(str));
+      } else if (
+        encoding === "ucs2" ||
+        encoding === "ucs-2" ||
+        encoding === "utf16le" ||
+        encoding === "utf-16le"
+      ) {
+        data = Uint8Array.wrap(String.UTF16.encode(str));
+      } else if (encoding === "base64") {
+        data = decodeBase64(str);
+      } else if (encoding === "ascii") {
+        data = decodeAscii(str)
+      }
+    }
 
-  constructor(size: i32) {
-    super(size);
+    // UTF8 as default encoding
+    if (!encoding) data = Uint8Array.wrap(String.UTF8.encode(str));
+
+    super(data.length);
+
+    cloneData(data, this);
+
   }
+  /**
+   * Convert buffer to string. Can be encoded with the provided encoding.
+   * @param encoding string | null
+   * @returns string
+   */
+  toString(encoding: string | null = null): string {
+    if (!encoding) return String.UTF8.decode(this.buffer);
 
-  static alloc(size: i32): Buffer {
-    return new Buffer(size);
+    if (encoding === "binary" || encoding === "latin1") {
+      return encodeLatin(this);
+    } else if (encoding === "hex") {
+      return encodeHEX(this);
+    } else if (encoding === "utf8" || encoding === "utf-8") {
+      return String.UTF8.decode(this.buffer);
+    } else if (
+      encoding === "ucs2" ||
+      encoding === "ucs-2" ||
+      encoding === "utf16le" ||
+      encoding === "utf-16le"
+    ) {
+      return String.UTF16.decode(this.buffer);
+    } else if (encoding === "base64") {
+      return encodeBase64(this);
+    } else if (encoding === "ascii") {
+      return encodeAscii(this)
+    }
+    return "";
   }
-
-  @unsafe static allocUnsafe(size: i32): Buffer {
+  equals(otherBuffer: Buffer): boolean {
+    let equals = true;
+    if (this.length !== otherBuffer.length) return false;
+    if (this.byteLength !== otherBuffer.length) return false;
+    for (let i = 0; i < this.length; i++) {
+      if (this[i] !== otherBuffer[i]) return false;
+    }
+    return equals;
+  }
+  toJSON(): JSONbuffer {
+    return new JSONbuffer(bufferToUintArray(this));
+  }
+  slice(start: i32, end: i32): Buffer {
+    let startNum = 0;
+    let endNum = this.length;
+    if (start) startNum = start;
+    if (end) endNum = end;
+    const buf = Uint8Array.wrap(this.buffer);
+    return changetype<Buffer>(buf.slice(startNum, endNum));
+  }
+  write(str: string): Buffer {
+    const buf = new Uint8Array(this.length + str.length);
+    const strBytes = Uint8Array.wrap(String.UTF8.encode(str));
+    for (let i = 0; i < this.length; i++) {
+      buf[i] = this[i];
+    }
+    for (let u = this.length; u < this.length + str.length; u++) {
+      buf[u] = strBytes[u];
+    }
+    return changetype<Buffer>(buf);
+  }
+  /**
+   * Allocates a new buffer of {size} octets.
+   *
+   * @param size count of octets to allocate.
+   * @param fill if specified, buffer will be initialized by calling buf.fill(fill).
+   *    If parameter is omitted, buffer will be filled with zeros.
+   * @param encoding encoding used for call to buf.fill while initializing
+   */
+  static alloc /*<T>*/(
+    size: i32 /*, fill: T | null = null, encoding: string | null*/
+  ): Buffer {
+    return changetype<Buffer>(new Uint8Array(size));
+  }
+  /**
+   * Allocates a new buffer of {size} octets, leaving memory not initialized, so the contents
+   * of the newly created Buffer are unknown and may contain sensitive data.
+   *
+   * @param size count of octets to allocate
+   */
+  static allocUnsafe(size: i32): Buffer {
+    // Temporary until I learn memory
+    return Buffer.alloc(size);
+    /*
     // range must be valid
     if (<usize>size > BLOCK_MAXSIZE) throw new RangeError(E_INVALIDLENGTH);
-    let buffer = __alloc(size, idof<ArrayBuffer>());
-    let result = __alloc(offsetof<Buffer>(), idof<Buffer>());
+    let buffer = heap.alloc(size);
+    let result = heap.alloc(offsetof<Buffer>());
 
     // set the properties
-    store<usize>(result, __retain(buffer), offsetof<Buffer>("buffer"));
+    store<usize>(result, buffer, offsetof<Buffer>("buffer"));
     store<usize>(result, buffer, offsetof<Buffer>("dataStart"));
     store<i32>(result, size, offsetof<Buffer>("byteLength"));
 
     // return and retain
     return changetype<Buffer>(result);
+    */
   }
+  /**
+   * Allocates a new non-pooled buffer of {size} octets, leaving memory not initialized, so the contents
+   * of the newly created Buffer are unknown and may contain sensitive data.
+   *
+   * @param size count of octets to allocate
+   */
+  static allocUnsafeSlow(size: i32): Buffer {
+    // Temporary until I learn memory
+    return Buffer.alloc(size);
+    /*
+    // range must be valid
+    if (<usize>size > BLOCK_MAXSIZE) throw new RangeError(E_INVALIDLENGTH);
+    let buffer = heap.alloc(size);
+    let result = heap.alloc(offsetof<Buffer>());
 
-  static isBuffer<T>(value: T): bool {
-    return value instanceof Buffer;
+    // set the properties
+    store<usize>(result, buffer, offsetof<Buffer>("buffer"));
+    store<usize>(result, buffer, offsetof<Buffer>("dataStart"));
+    store<i32>(result, size, offsetof<Buffer>("byteLength"));
+
+    // return and retain
+    return changetype<Buffer>(result);
+    */
   }
-
-  // Adapted from https://github.com/AssemblyScript/assemblyscript/blob/master/std/assembly/typedarray.ts
-  subarray(begin: i32 = 0, end: i32 = 0x7fffffff): Buffer {
-    var len = <i32>this.byteLength;
-    begin = begin < 0 ? max(len + begin, 0) : min(begin, len);
-    end   = end   < 0 ? max(len + end,   0) : min(end,   len);
-    end   = max(end, begin);
-
-    var out = __alloc(offsetof<Buffer>(), idof<Buffer>()); // retains
-    store<usize>(out, __retain(changetype<usize>(this.buffer)), offsetof<Buffer>("buffer"));
-    store<usize>(out, this.dataStart + <usize>begin, offsetof<Buffer>("dataStart"));
-    store<i32>(out, end - begin, offsetof<Buffer>("byteLength"));
-
-    // retains
-    return changetype<Buffer>(out);
-  }
-
-  readInt8(offset: i32 = 0): i8 {
-    if (i32(offset < 0) | i32(offset >= this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<i8>(this.dataStart + <usize>offset);
-  }
-
-  readUInt8(offset: i32 = 0): u8 {
-    if (i32(offset < 0) | i32(offset >= this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<u8>(this.dataStart + <usize>offset);
-  }
-
-  writeInt8(value: i8, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset >= this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i8>(this.dataStart + offset, value);
-    return offset + 1;
-  }
-
-  writeUInt8(value: u8, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset >= this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<u8>(this.dataStart + offset, value);
-    return offset + 1;
-  }
-
-  readInt16LE(offset: i32 = 0): i16 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<i16>(this.dataStart + <usize>offset);
-  }
-
-  readInt16BE(offset: i32 = 0): i16 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return bswap(load<i16>(this.dataStart + <usize>offset));
-  }
-
-  readUInt16LE(offset: i32 = 0): u16 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<u16>(this.dataStart + <usize>offset);
-  }
-
-  readUInt16BE(offset: i32 = 0): u16 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return bswap(load<u16>(this.dataStart + <usize>offset));
-  }
-
-  writeInt16LE(value: i16, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i16>(this.dataStart + offset, value);
-    return offset + 2;
-  }
-
-  writeInt16BE(value: i16, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i16>(this.dataStart + offset, bswap(value));
-    return offset + 2;
-  }
-
-  writeUInt16LE(value: u16, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<u16>(this.dataStart + offset, value);
-    return offset + 2;
-  }
-
-  writeUInt16BE(value: u16, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 2 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<u16>(this.dataStart + offset, bswap(value));
-    return offset + 2;
-  }
-
-  readInt32LE(offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<i32>(this.dataStart + <usize>offset);
-  }
-
-  readInt32BE(offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return bswap(load<i32>(this.dataStart + <usize>offset));
-  }
-
-  readUInt32LE(offset: i32 = 0): u32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<u32>(this.dataStart + <usize>offset);
-  }
-
-  readUInt32BE(offset: i32 = 0): u32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return bswap(load<u32>(this.dataStart + <usize>offset));
-  }
-
-  writeInt32LE(value: i32, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i32>(this.dataStart + offset, value);
-    return offset + 4;
-  }
-
-  writeInt32BE(value: i32, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i32>(this.dataStart + offset, bswap(value));
-    return offset + 4;
-  }
-
-  writeUInt32LE(value: u32, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<u32>(this.dataStart + offset, value);
-    return offset + 4;
-  }
-
-  writeUInt32BE(value: u32, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<u32>(this.dataStart + offset, bswap(value));
-    return offset + 4;
-  }
-
-  readFloatLE(offset: i32 = 0): f32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<f32>(this.dataStart + <usize>offset);
-  }
-
-  readFloatBE(offset: i32 = 0): f32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return reinterpret<f32>(bswap(load<i32>(this.dataStart + <usize>offset)));
-  }
-
-  writeFloatLE(value: f32, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<f32>(this.dataStart + offset, value);
-    return offset + 4;
-  }
-
-  writeFloatBE(value: f32, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 4 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i32>(this.dataStart + offset, bswap(reinterpret<i32>(value)));
-    return offset + 4;
-  }
-
-  readBigInt64LE(offset: i32 = 0): i64 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<i64>(this.dataStart + <usize>offset);
-  }
-
-  readBigInt64BE(offset: i32 = 0): i64 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return bswap(load<i64>(this.dataStart + <usize>offset));
-  }
-
-  readBigUInt64LE(offset: i32 = 0): u64 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<u64>(this.dataStart + <usize>offset);
-  }
-
-  readBigUInt64BE(offset: i32 = 0): u64 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return bswap(load<u64>(this.dataStart + <usize>offset));
-  }
-
-  writeBigInt64LE(value: i64, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i64>(this.dataStart + offset, value);
-    return offset + 8;
-  }
-
-  writeBigInt64BE(value: i64, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i64>(this.dataStart + offset, bswap(value));
-    return offset + 8;
-  }
-
-  writeBigUInt64LE(value: u64, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<u64>(this.dataStart + offset, value);
-    return offset + 8;
-  }
-
-  writeBigUInt64BE(value: u64, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<u64>(this.dataStart + offset, bswap(value));
-    return offset + 8;
-  }
-
-  readDoubleLE(offset: i32 = 0): f64 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return load<f64>(this.dataStart + <usize>offset);
-  }
-
-  readDoubleBE(offset: i32 = 0): f64 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    return reinterpret<f64>(bswap(load<i64>(this.dataStart + <usize>offset)));
-  }
-
-  writeDoubleLE(value: f64, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<f64>(this.dataStart + offset, value);
-    return offset + 8;
-  }
-
-  writeDoubleBE(value: f64, offset: i32 = 0): i32 {
-    if (i32(offset < 0) | i32(offset + 8 > this.byteLength)) throw new RangeError(E_INDEXOUTOFRANGE);
-    store<i64>(this.dataStart + offset, bswap(reinterpret<i64>(value)));
-    return offset + 8;
-  }
-
-  swap16(): Buffer {
-    let byteLength = <usize>this.byteLength;
-    // Make sure byteLength is even
-    if (byteLength & 1) throw new RangeError(E_INVALIDLENGTH);
-    let dataStart = this.dataStart;
-    byteLength += dataStart;
-    while (dataStart < byteLength) {
-      store<u16>(dataStart, bswap(load<u16>(dataStart)));
-      dataStart += 2;
+  /**
+   * Create buffer from multiple types.
+   * @param data string | Buffer | Uint8Array | Array | ArrayBuffer
+   * @param encoding string | null
+   * @returns Buffer
+   */
+  static from<T>(data: T, encoding: string | null = null): Buffer {
+    if (typeof data === "string") {
+      return new Buffer(changetype<string>(data), encoding);
+    } else if (data instanceof Buffer || data instanceof Uint8Array) {
+      return changetype<Buffer>(data);
+    } else if (data instanceof ArrayBuffer) {
+      return changetype<Buffer>(Uint8Array.wrap(data));
+    } else if (isArray(data)) {
+      if (data.length === 0) return Buffer.alloc(0);
+      if (typeof data[0] === "number") {
+        const buf = Buffer.alloc(data.length);
+        for (let i = 0; i < data.length; i++) {
+          buf[i] = u8(data[i]);
+        }
+        return buf;
+      }
+      throw new Error("Invalid Data Provided.");
+    } else {
+      throw new Error("Invalid Data Provided.");
     }
-    return this;
   }
-
-  swap32(): Buffer {
-    let byteLength = <usize>this.byteLength;
-    // Make sure byteLength is divisible by 4
-    if (byteLength & 3) throw new RangeError(E_INVALIDLENGTH);
-    let dataStart = this.dataStart;
-    byteLength += dataStart;
-    while (dataStart < byteLength) {
-      store<u32>(dataStart, bswap(load<u32>(dataStart)));
-      dataStart += 4;
-    }
-    return this;
+  /**
+   * Returns true if {encoding} is a valid encoding argument.
+   * Valid string encodings in Node 0.12: 'ascii'|'utf8'|'utf16le'|'ucs2'(alias of 'utf16le')|'base64'|'binary'(deprecated)|'hex'
+   *
+   * @param encoding string to test.
+   */
+  static isBuffer<T>(obj: T): boolean {
+    return obj instanceof Buffer;
   }
-
-  swap64(): Buffer {
-    let byteLength = <usize>this.byteLength;
-    // Make sure byteLength is divisible by 8
-    if (byteLength & 7) throw new RangeError(E_INVALIDLENGTH);
-    let dataStart = this.dataStart;
-    byteLength += dataStart;
-    while (dataStart < <usize>byteLength) {
-      store<u64>(dataStart, bswap(load<u64>(dataStart)));
-      dataStart += 8;
+  /**
+   * Check if the provided encoding is valid.
+   * @param encoding string
+   * @returns boolean
+   */
+  static isEncoding(encoding: string): boolean {
+    const encodings = ["utf8", "utf-8", "latin1", "binary", "hex", "base64", "ascii", "utf16le", "ucs2", "ucs-2", "utf-16le"];
+    return encodings.includes(encoding) ? true : false;
+  }
+  /**
+   * Gives the actual byte length of a string. encoding defaults to 'utf8'.
+   * This is not the same as String.prototype.length since that returns the number of characters in a string.
+   *
+   * @param string string to test.
+   * @param encoding encoding used to evaluate (defaults to 'utf8')
+   */
+  static byteLength(string: string, encoding: string | null = null): i32 {
+    if (!encoding) return string.length;
+    if (encoding === "binary" || encoding === "latin1") {
+      return string.length;
+    } else if (encoding === "hex") {
+      return string.length >>> 1;
+    } else {
+      return string.length;
     }
-    return this;
+  }
+  /**
+   * Returns a buffer which is the result of concatenating all the buffers in the list together.
+   *
+   * If the list has no items, or if the totalLength is 0, then it returns a zero-length buffer.
+   * If the list has exactly one item, then the first item of the list is returned.
+   * If the list has more than one item, then a new Buffer is created.
+   *
+   * @param list An array of Buffer objects to concatenate
+   * @param totalLength Total length of the buffers when concatenated.
+   *   If totalLength is not provided, it is read from the buffers in the list. However, this adds an additional loop to the function, so it is faster to provide the length explicitly.
+   */
+  static concat(list: Buffer[]): Buffer {
+    const arr = new Array<u8>();
+    for (let i = 0; i < list.length; i++) {
+      for (let u = 0; u < list[i].length; u++) {
+        arr.push(list[i][u]);
+      }
+    }
+    return Buffer.from(arr);
+  }
+  // TODO
+  /**
+   * The same as buf1.compare(buf2).
+   */
+  static compare(): void { }
+}
+
+function cloneData(from: Uint8Array, to: Uint8Array): void {
+  for (let i = 0; i < from.length; i++) {
+    to[i] = from[i];
   }
 }
 
-export namespace Buffer {
-  export namespace ASCII {
-    export function encode(str: string): ArrayBuffer {
-      let length = str.length;
-      let output = __alloc(length, idof<ArrayBuffer>());
-      for (let i = 0; i < length; i++) {
-        let char = load<u16>(changetype<usize>(str) + <usize>(i << 1));
-        store<u8>(output + <usize>i, char & 0x7F);
-      }
-      return changetype<ArrayBuffer>(output);
-    }
-
-    export function decode(buffer: ArrayBuffer): String {
-      return decodeUnsafe(changetype<usize>(buffer), buffer.byteLength);
-    }
-
-    // @ts-ignore: decorator
-    @unsafe export function decodeUnsafe(pointer: usize, length: i32): String {
-      let result = __alloc(<usize>length << 1, idof<string>());
-
-      for (let i = 0; i < length; i++) {
-        let byte = load<u8>(pointer + <usize>i);
-        store<u16>(result + <usize>(i << 1), byte & 0x7F);
-      }
-
-      return changetype<String>(result);
-    }
+function bufferToArray(buffer: Buffer): Array<u8> {
+  const arr = new Array<u8>(buffer.length);
+  for (let i = 0; i < buffer.length; i++) {
+    arr[i] = buffer[i];
   }
+  return arr;
+}
 
-  export namespace HEX {
-    /** Calculates the byte length of the specified string when encoded as HEX. */
-    export function byteLength(str: string): i32 {
-      let ptr = changetype<usize>(str);
-      let byteCount = <usize>changetype<BLOCK>(changetype<usize>(str) - BLOCK_OVERHEAD).rtSize;
-      let length = byteCount >>> 2;
-      // The string length must be even because the bytes come in pairs of characters two wide
-      if (byteCount & 3) return 0; // encoding fails and returns an empty ArrayBuffer
-
-      byteCount += ptr;
-      while (ptr < byteCount) {
-        var char = load<u16>(ptr);
-        if (  ((char - 0x30) <= 9)
-           || ((char - 0x61) <= 5)
-           || ((char - 0x41) <= 5)) {
-          ptr += 2;
-          continue;
-        } else {
-          return 0;
-        }
-      }
-      return <i32>length;
-    }
-
-    /** Creates an ArrayBuffer from a given string that is encoded in the HEX format. */
-    export function encode(str: string): ArrayBuffer {
-      let bufferLength = byteLength(str);
-      // short path: string is not a valid hex string, return a new empty ArrayBuffer
-      if (bufferLength == 0) return changetype<ArrayBuffer>(__alloc(0, idof<ArrayBuffer>()));
-
-      // long path: loop over each enociding pair and perform the conversion
-      let ptr = changetype<usize>(str);
-      let byteEnd = ptr + <usize>changetype<BLOCK>(changetype<usize>(str) - BLOCK_OVERHEAD).rtSize;
-      let result = __alloc(bufferLength, idof<ArrayBuffer>());
-      let b: u32 = 0;
-      let outChar = 0;
-      for (let i: usize = 0; ptr < byteEnd; i++) {
-        if (i & 1) {
-          outChar <<= 4;
-          b >>>= 16;
-          if ((b - 0x30) <= 9) {
-            outChar |= b - 0x30;
-          } else if ((b - 0x61) <= 5) {
-            outChar |= b - 0x57;
-          } else if (b - 0x41 <= 5) {
-            outChar |= b - 0x37;
-          }
-          store<u8>(result + (i >> 1), <u8>(outChar & 0xFF));
-          ptr += 4;
-        } else {
-          b = load<u32>(ptr);
-          outChar <<= 4;
-          let c = b & 0xFF;
-          if ((c - 0x30) <= 9) {
-            outChar |= c - 0x30;
-          } else if ((c - 0x61) <= 5) {
-            outChar |= c - 0x57;
-          } else if (c - 0x41 <= 5) {
-            outChar |= c - 0x37;
-          }
-        }
-      }
-      return changetype<ArrayBuffer>(result);
-    }
-
-    /** Creates a string from a given ArrayBuffer that is decoded into hex format. */
-    export function decode(buff: ArrayBuffer): string {
-      return decodeUnsafe(changetype<usize>(buff), buff.byteLength);
-    }
-
-    /** Decodes a chunk of memory to a utf16le encoded string in hex format. */
-    // @ts-ignore: decorator
-    @unsafe export function decodeUnsafe(ptr: usize, length: i32): string {
-      let stringByteLength = length << 2; // length * (2 bytes per char) * (2 chars per input byte)
-      let result = __alloc(stringByteLength, idof<String>());
-      let i = <usize>0;
-      let inputByteLength = <usize>length + ptr;
-
-      // loop over each byte and store a `u32` for each one
-      while (ptr < inputByteLength) {
-        store<u32>(result + i, charsFromByte(<u32>load<u8>(ptr++)));
-        i += 4;
-      }
-
-      return changetype<string>(result);
-    }
-
-    /** Calculates the two char combination from the byte. */
-    // @ts-ignore: decorator
-    @inline function charsFromByte(byte: u32): u32 {
-      let hi = (byte >>> 4) & 0xF;
-      let lo = byte & 0xF;
-      hi += select(0x57, 0x30, hi > 9);
-      lo += select(0x57, 0x30, lo > 9);
-      return (lo << 16) | hi;
-    }
+function bufferToUintArray(buffer: Buffer): Uint8Array {
+  const arr = new Uint8Array(buffer.length);
+  for (let i = 0; i < buffer.length; i++) {
+    arr[i] = buffer[i];
   }
+  return arr;
+}
+
+
+function encodeLatin(buf: Uint8Array): string {
+  let ret = ''
+  for (let i = 0; i < buf.length; ++i) {
+    ret += String.fromCharCode(buf[i]);
+  }
+  return ret
+}
+
+function decodeLatin(str: string): Uint8Array {
+  const byteArray = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; ++i) {
+    byteArray[i] = str.charCodeAt(i);
+  }
+  return byteArray;
+}
+
+function encodeHEX(buf: Uint8Array): string {
+  let out = ''
+  for (let i = 0; i < buf.byteLength; ++i) {
+    out += hexLookupTable[buf[i]];
+  }
+  return out
+}
+
+function decodeHEX(str: string): Uint8Array {
+  const byteArray = new Uint8Array(str.length >>> 1);
+  const strArray = str.split("");
+  let pos = 0;
+  for (let i = 0; i < str.length / 2; ++i) {
+    let hex = "" + strArray[pos] + "" + strArray[pos + 1] + "";
+    byteArray[i] = u32(parseInt("0x" + hex + "", 16));
+    pos = pos + 2;
+  }
+  return byteArray;
+}
+
+function decodeAscii(str: string): Uint8Array {
+  const byteArray = new Uint8Array(str.length)
+  for (let i = 0; i < str.length; ++i) {
+    // Node's code seems to be doing this and not & 0x7F..
+    byteArray[i] = (str.charCodeAt(i) & 0xFF)
+  }
+  return byteArray
+}
+
+function encodeAscii(buf: Uint8Array): string {
+  let ret = ''
+  for (let i = 0; i < buf.length; ++i) {
+    ret += String.fromCharCode(buf[i] & 0x7F)
+  }
+  return ret
 }

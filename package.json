@@ -17,7 +17,7 @@
   },
   "scripts": {
     "test:wasmtime": "wasmtime node.wasm --dir .",
-    "test:lunatic": "lunatic node.wasm --dir .",
+    "test:lunatic": "lunatic node.wasm",
     "test:node": "node --experimental-wasi-unstable-preview1 test.js",
     "build": "yarn asc assembly/index.ts --explicitStart -o node.wasm"
   },

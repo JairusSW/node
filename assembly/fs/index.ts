@@ -25,6 +25,6 @@ export namespace fs {
         if (!descriptor) {
             throw new Error('File not found')
         }
-        descriptor.writeString(Buffer.toString())
+        descriptor.writeString(data.toString('utf8'))
     }
 }
